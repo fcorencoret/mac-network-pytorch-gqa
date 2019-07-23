@@ -53,7 +53,7 @@ class ReadUnit(nn.Module):
 
     def forward(self, memory, know, controls):
         mem_proj = self.mem(memory[-1]).unsqueeze(2)
-        know_proj = self.know(know)
+        know_proj = self.know(know.permute(0,2,1)).permute(0,2,1)
 
         concat = self.concat(torch.cat([mem_proj * know_proj, know], 1) \
                                 .permute(0, 2, 1))

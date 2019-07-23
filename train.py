@@ -1,7 +1,7 @@
 import multiprocessing
 import pickle
 import sys
-
+from comet_ml import Experiment
 import torch
 from torch import nn
 from torch import optim
@@ -11,14 +11,18 @@ from tqdm import tqdm
 from config import BASE_LR, TRAIN_EPOCHS, BATCH_SIZE, DEVICE, MAX_STEPS, USE_SELF_ATTENTION, \
     USE_MEMORY_GATE, MAC_UNIT_DIM
 from dataset import CLEVR, collate_data, transform, GQA
-from model_gqa import MACNetwork
+from model import MACNetwork
+from utils import params_to_dic
+from args import parse_args
+
 
 
 def train(epoch, dataset_type):
+    root = args.root
     if dataset_type == "CLEVR":
-        dataset_object = CLEVR('data/CLEVR_v1.0', transform=transform)
+        dataset_object = CLEVR(root, transform=transform)
     else:
-        dataset_object = GQA('data/gqa', transform=transform)
+        dataset_object = GQA(root, transform=transform)
 
     train_set = DataLoader(
         dataset_object, batch_size=BATCH_SIZE, num_workers=multiprocessing.cpu_count(), collate_fn=collate_data
@@ -37,7 +41,6 @@ def train(epoch, dataset_type):
             question.to(DEVICE),
             answer.to(DEVICE),
         )
-
         net.zero_grad()
         output = net(image, question, q_len)
         loss = criterion(output, answer)
@@ -52,19 +55,20 @@ def train(epoch, dataset_type):
         running_loss += loss.item() / BATCH_SIZE
 
         pbar.set_description(
-            'Epoch: {}; Loss: {:.8f}; Acc: {:.5f}'.format(epoch + 1, loss.item(), correct))
+            '[Training] Epoch: {}; Loss: {:.8f}; Acc: {:.5f}'.format(epoch + 1, loss.item(), correct))
 
-    print('Training loss: {:8f}, accuracy: {:5f}'.format(running_loss / len(train_set.dataset),
+    print('[Training] loss: {:8f}, accuracy: {:5f}'.format(running_loss / len(train_set.dataset),
                                                          correct_counts / total_counts))
-
     dataset_object.close()
+    return running_loss / len(train_set.dataset), correct_counts / total_counts
 
 
 def valid(epoch, dataset_type):
+    root = args.root
     if dataset_type == "CLEVR":
-        dataset_object = CLEVR('data/CLEVR_v1.0', 'val', transform=None)
+        dataset_object = CLEVR(root, 'val', transform=None)
     else:
-        dataset_object = GQA('data/gqa', 'val', transform=None)
+        dataset_object = GQA(root, 'val', transform=None)
 
     valid_set = DataLoader(dataset_object, batch_size=BATCH_SIZE, num_workers=multiprocessing.cpu_count(),
                            collate_fn=collate_data)
@@ -91,35 +95,56 @@ def valid(epoch, dataset_type):
             running_loss += loss.item() / BATCH_SIZE
 
             pbar.set_description(
-                'Epoch: {}; Loss: {:.8f}; Acc: {:.5f}'.format(epoch + 1, loss.item(), correct_counts / total_counts))
+                '[Val] Epoch: {}; Loss: {:.8f}; Acc: {:.5f}'.format(epoch + 1, loss.item(), correct_counts / total_counts))
 
-    with open('log/log_{}.txt'.format(str(epoch + 1).zfill(2)), 'w') as w:
-        w.write('{:.5f}\n'.format(correct_counts / total_counts))
-
-    print('Training loss: {:8f}, accuracy: {:5f}'.format(running_loss / len(valid_set.dataset),
+    print('[Val] loss: {:8f}, accuracy: {:5f}'.format(running_loss / len(valid_set.dataset),
                                                          correct_counts / total_counts))
 
     dataset_object.close()
+    return running_loss / len(valid_set.dataset), correct_counts / total_counts
 
 
 if __name__ == '__main__':
-    dataset_type = sys.argv[1]
-    with open(f'data/{dataset_type}_dic.pkl', 'rb') as f:
+    args = parse_args()
+    dataset_type = args.model
+    root = args.root
+    if args.comet:
+        experiment = Experiment(api_key='VD0MYyhx0BQcWhxWvLbcalX51',
+                        project_name="MAC")
+        experiment.log_parameters(params_to_dic())
+
+    with open(f'{root}/dic.pkl', 'rb') as f:
         dic = pickle.load(f)
 
     n_words = len(dic['word_dic']) + 1
     n_answers = len(dic['answer_dic'])
 
     net = MACNetwork(n_words, MAC_UNIT_DIM[dataset_type], classes=n_answers, max_step=MAX_STEPS,
-                     self_attention=USE_SELF_ATTENTION, memory_gate=USE_MEMORY_GATE).to(DEVICE)
+                     self_attention=USE_SELF_ATTENTION, memory_gate=USE_MEMORY_GATE)
     net = nn.DataParallel(net)
+    net.to(DEVICE)
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(net.parameters(), lr=BASE_LR)
+    best_loss = float('inf')
+    best_epoch = float('inf')
 
     for epoch in range(TRAIN_EPOCHS):
-        train(epoch, dataset_type)
-        valid(epoch, dataset_type)
+        if args.comet:
+            with experiment.train(): 
+                train_loss, train_acc = train(epoch, dataset_type)
+                experiment.log_metrics({'Loss' : train_loss, 'Accuracy': train_acc})
+            with experiment.test(): 
+                val_loss, val_acc = valid(epoch, dataset_type)
+                experiment.log_metrics({'Loss' : val_loss, 'Accuracy': val_acc})
+            if val_loss < best_loss:
+                with open('checkpoint/{}_best_checkpoint.pth'.format(args.exp_name), 'wb') as f:
+                    torch.save(net.state_dict(), f)
+                with open('optimizer/{}_best_  optimizer.pth'.format(args.exp_name), 'wb') as f:
+                    torch.save(optimizer.state_dict(), f)
+                print(f'---- Saving best model weights and optimizer for epoch {epoch + 1} ----')
+        else:
+            train(epoch, dataset_type)
+            valid(epoch, dataset_type)
 
-        with open('checkpoint/checkpoint_{}.model'.format(str(epoch + 1).zfill(2)), 'wb') as f:
-            torch.save(net.state_dict(), f)
+        

@@ -13,12 +13,12 @@ from transforms import Scale
 
 img = None
 img_info = {}
-def gqa_feature_loader():
+def gqa_feature_loader(root):
     global img, img_info
     if img is not None:
         return img, img_info
 
-    h = h5py.File('data/gqa_features.hdf5', 'r')
+    h = h5py.File(f'{root}/gqa_features.hdf5', 'r')
     img = h['features']
     img_info = json.load(open('data/gqa_objects_merged_info.json', 'r'))
     return img, img_info
@@ -26,21 +26,21 @@ def gqa_feature_loader():
 
 class CLEVR(Dataset):
     def __init__(self, root, split='train', transform=None):
-        with open(f'data/CLEVR_{split}.pkl', 'rb') as f:
+        with open(f'{root}/{split}.pkl', 'rb') as f:
             self.data = pickle.load(f)
 
         # self.transform = transform
         self.root = root
         self.split = split
 
-        self.h = h5py.File('data/CLEVR_{}_features.hdf5'.format(split), 'r')
+        self.h = h5py.File(f'{root}/{split}_features.hdf5', 'r')
         self.img = self.h['data']
 
     def close(self):
         self.h.close()
 
     def __getitem__(self, index):
-        imgfile, question, answer = self.data[index]
+        imgfile, question, answer, _ = self.data[index]
         # img = Image.open(os.path.join(self.root, 'images',
         #                            self.split, imgfile)).convert('RGB')
 
@@ -55,12 +55,12 @@ class CLEVR(Dataset):
 
 class GQA(Dataset):
     def __init__(self, root, split='train', transform=None):
-        with open(f'data/gqa_{split}.pkl', 'rb') as f:
+        with open(f'{root}/gqa_{split}.pkl', 'rb') as f:
             self.data = pickle.load(f)
 
         self.root = root
         self.split = split
-        self.img, self.img_info = gqa_feature_loader()
+        self.img, self.img_info = gqa_feature_loader(self.root)
 
     def __getitem__(self, index):
         imgfile, question, answer = self.data[index]

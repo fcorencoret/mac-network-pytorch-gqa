@@ -6,6 +6,7 @@ import pickle
 import sys
 
 import numpy as np
+import config
 
 id2word = []
 embedding_weights = None
@@ -41,3 +42,38 @@ def get_or_load_embeddings():
                 embedding_weights[id] = np.array(line[1:], dtype=np.float32)
 
     return embedding_weights
+
+def params_to_dic():
+    params = {
+        "BASE_LR" : config.BASE_LR,
+        "TRAIN_EPOCHS" : config.TRAIN_EPOCHS,
+        "BATCH_SIZE" : config.BATCH_SIZE,
+        "EARLY_STOPPING_ENABLED" : config.EARLY_STOPPING_ENABLED,
+        "EARLY_STOPPING_PATIENCE" : config.EARLY_STOPPING_PATIENCE,
+
+        ### Model Parameters
+        "MAX_STEPS" : config.MAX_STEPS,
+        "USE_SELF_ATTENTION" : config.USE_SELF_ATTENTION,
+        "USE_MEMORY_GATE" : config.USE_MEMORY_GATE,
+        "MAC_UNIT_DIM" : config.MAC_UNIT_DIM,
+
+        ### Miscellaneous Config
+        "MODEL_PREFIX" : config.MODEL_PREFIX,
+        "RANDOM_SEED" : config.RANDOM_SEED,
+
+        ## dropouts
+        "encInputDropout" : config.encInputDropout,
+        "encStateDropout" : config.encStateDropout,
+        "stemDropout" : config.stemDropout,
+        "qDropout" : config.qDropout,
+        "qDropoutOut" : config.qDropoutOut,
+        "memoryDropout" : config.memoryDropout,
+        "readDropout" : config.readDropout,
+        "writeDropout" : config.writeDropout,
+        "outputDropout" : config.outputDropout,
+        "controlPreDropout" : config.controlPreDropout,
+        "controlPostDropout" : config.controlPostDropout,
+        "wordEmbDropout" : config.wordEmbDropout,
+    }
+    return params
+

@@ -111,6 +111,7 @@ if __name__ == '__main__':
     if args.comet:
         experiment = Experiment(api_key='VD0MYyhx0BQcWhxWvLbcalX51',
                         project_name="MAC")
+        experiment.set_name(args.exp_name)
         experiment.log_parameters(params_to_dic())
 
     with open(f'{root}/dic.pkl', 'rb') as f:

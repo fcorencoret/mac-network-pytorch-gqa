@@ -3,6 +3,8 @@
 *.model
 log/*.txt
 *.pkl
+checkpoint/
+optimizer
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

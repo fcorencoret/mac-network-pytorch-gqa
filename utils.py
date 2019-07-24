@@ -56,6 +56,7 @@ def params_to_dic():
         "USE_SELF_ATTENTION" : config.USE_SELF_ATTENTION,
         "USE_MEMORY_GATE" : config.USE_MEMORY_GATE,
         "MAC_UNIT_DIM" : config.MAC_UNIT_DIM,
+        "NUM_HEADS" : config.NUM_HEADS,
 
         ### Miscellaneous Config
         "MODEL_PREFIX" : config.MODEL_PREFIX,

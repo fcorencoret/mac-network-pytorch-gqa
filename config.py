@@ -8,7 +8,7 @@ import torch
 ### Learning Parameters
 BASE_LR = 1e-4
 TRAIN_EPOCHS = 25
-BATCH_SIZE = 512
+BATCH_SIZE = 64
 EARLY_STOPPING_ENABLED = False
 EARLY_STOPPING_PATIENCE = 10
 
@@ -18,6 +18,7 @@ USE_SELF_ATTENTION = False
 USE_MEMORY_GATE = False
 MAC_UNIT_DIM = {'CLEVR': 512,
                 'gqa': 2048}
+NUM_HEADS = 8
 
 ### Miscellaneous Config
 MODEL_PREFIX = "MAC"

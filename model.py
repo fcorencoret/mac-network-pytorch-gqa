@@ -3,6 +3,7 @@ from torch.autograd import Variable
 from torch import nn
 from torch.nn.init import kaiming_uniform_, xavier_uniform_, normal
 import torch.nn.functional as F
+from MultiheadAttention import MultiheadAttention
 
 def linear(in_dim, out_dim, bias=True):
     lin = nn.Linear(in_dim, out_dim, bias=bias)
@@ -11,6 +12,12 @@ def linear(in_dim, out_dim, bias=True):
         lin.bias.data.zero_()
 
     return lin
+
+def gen_mask(mask_layer, query, key, b_size):
+    key = key.unsqueeze(0).repeat(b_size, 1, 1).transpose(1, 0)
+    _, mask = mask_layer(query, key, key)
+    mask = mask.transpose(1,2)
+    return mask
 
 class ControlUnit(nn.Module):
     def __init__(self, dim, max_step):
@@ -43,20 +50,39 @@ class ControlUnit(nn.Module):
 
 
 class ReadUnit(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, dim, num_heads=8):
         super().__init__()
 
         self.mem = linear(dim, dim)
+        self.mem_mask = MultiheadAttention(dim, num_heads)
         self.know = linear(dim, dim)
+        self.know_mask = MultiheadAttention(dim, num_heads)
         self.concat = linear(dim * 2, dim)
+        self.concat_prev_mask = linear(dim * 2, dim)
+        self.concat_mask = MultiheadAttention(dim, num_heads)
         self.attn = linear(dim, 1)
+        self.attn_mask = MultiheadAttention(dim, num_heads)
 
-    def forward(self, memory, know, controls):
-        mem_proj = self.mem(memory[-1]).unsqueeze(2)
+
+
+    def forward(self, memories, know, controls):
+        b_size, dim = memories[0].size()
+        query = controls[-1].unsqueeze(0)
+        
+        mem_proj = self.mem(memories[-1]).unsqueeze(2)
+        mem_mask = gen_mask(self.mem_mask, query, self.mem.weight, b_size)
+        mem_proj = mem_proj * mem_mask
+
         know_proj = self.know(know.permute(0,2,1)).permute(0,2,1)
+        know_mask = gen_mask(self.know_mask, query, self.know.weight, b_size)
+        know_proj = know_proj * know_mask
 
         concat = self.concat(torch.cat([mem_proj * know_proj, know], 1) \
-                                .permute(0, 2, 1))
+                                .permute(0, 2, 1)).permute(0, 2, 1)
+        concat_prev_mask = self.concat_prev_mask(self.concat.weight)
+        concat_mask = gen_mask(self.concat_mask, query, concat_prev_mask, b_size)
+        concat = (concat * concat_mask).permute(0,2,1)
+
         attn = concat * controls[-1].unsqueeze(1)
         attn = self.attn(attn).squeeze(2)
         attn = F.softmax(attn, 1).unsqueeze(1)
@@ -67,15 +93,19 @@ class ReadUnit(nn.Module):
 
 
 class WriteUnit(nn.Module):
-    def __init__(self, dim, self_attention=False, memory_gate=False):
+    def __init__(self, dim, self_attention=False, memory_gate=False, num_heads=8):
         super().__init__()
 
         self.concat = linear(dim * 2, dim)
+        self.concat_prev_mask = linear(dim * 2, dim)
+        self.concat_mask = MultiheadAttention(dim, num_heads)
 
         if self_attention:
             self.attn = linear(dim, 1)
             self.mem_s = linear(dim, dim)
+            self.mem_s_mask = MultiheadAttention(dim, num_heads)
             self.mem_p = linear(dim, dim)
+            self.mem_p_mask = MultiheadAttention(dim, num_heads)
             self.sa_bias = nn.Parameter(torch.zeros(dim))
 
         if memory_gate:
@@ -85,8 +115,14 @@ class WriteUnit(nn.Module):
         self.memory_gate = memory_gate
 
     def forward(self, memories, retrieved, controls):
+        b_size, dim = memories[0].size()
+        query = controls[-1].unsqueeze(0)
+
         prev_mem = memories[-1]
         concat = self.concat(torch.cat([retrieved, prev_mem], 1))
+        concat_prev_mask = self.concat_prev_mask(self.concat.weight)
+        concat_mask = gen_mask(self.concat_mask, query, concat_prev_mask, b_size)
+        concat = concat * concat_mask.squeeze(2)
         next_mem = concat
 
         if self.self_attention:
@@ -110,12 +146,12 @@ class WriteUnit(nn.Module):
 class MACUnit(nn.Module):
     def __init__(self, dim, max_step=12,
                 self_attention=False, memory_gate=False,
-                dropout=0.15):
+                dropout=0.15, num_heads=8):
         super().__init__()
 
         self.control = ControlUnit(dim, max_step)
-        self.read = ReadUnit(dim)
-        self.write = WriteUnit(dim, self_attention, memory_gate)
+        self.read = ReadUnit(dim, num_heads)
+        self.write = WriteUnit(dim, self_attention, memory_gate, num_heads)
 
         self.mem_0 = nn.Parameter(torch.zeros(1, dim))
         self.control_0 = nn.Parameter(torch.zeros(1, dim))
@@ -162,7 +198,7 @@ class MACUnit(nn.Module):
 class MACNetwork(nn.Module):
     def __init__(self, n_vocab, dim, embed_hidden=300,
                 max_step=12, self_attention=False, memory_gate=False,
-                classes=28, dropout=0.15):
+                classes=28, dropout=0.15, num_heads=8):
         super().__init__()
 
         self.conv = nn.Sequential(nn.Conv2d(1024, dim, 3, padding=1),
@@ -176,7 +212,7 @@ class MACNetwork(nn.Module):
         self.lstm_proj = nn.Linear(dim * 2, dim)
 
         self.mac = MACUnit(dim, max_step,
-                        self_attention, memory_gate, dropout)
+                        self_attention, memory_gate, dropout, num_heads)
 
 
         self.classifier = nn.Sequential(linear(dim * 3, dim),

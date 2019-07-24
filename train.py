@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from config import BASE_LR, TRAIN_EPOCHS, BATCH_SIZE, DEVICE, MAX_STEPS, USE_SELF_ATTENTION, \
-    USE_MEMORY_GATE, MAC_UNIT_DIM
+    USE_MEMORY_GATE, MAC_UNIT_DIM, NUM_HEADS
 from dataset import CLEVR, collate_data, transform, GQA
 from model import MACNetwork
 from utils import params_to_dic
@@ -121,13 +121,14 @@ if __name__ == '__main__':
     n_answers = len(dic['answer_dic'])
 
     net = MACNetwork(n_words, MAC_UNIT_DIM[dataset_type], classes=n_answers, max_step=MAX_STEPS,
-                     self_attention=USE_SELF_ATTENTION, memory_gate=USE_MEMORY_GATE)
+                     self_attention=USE_SELF_ATTENTION, memory_gate=USE_MEMORY_GATE, num_heads=NUM_HEADS)
     net = nn.DataParallel(net)
     net.to(DEVICE)
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(net.parameters(), lr=BASE_LR)
     best_loss = float('inf')
+    best_acc = float('inf')
     best_epoch = float('inf')
 
     for epoch in range(TRAIN_EPOCHS):
@@ -144,8 +145,13 @@ if __name__ == '__main__':
                 with open('optimizer/{}_best_  optimizer.pth'.format(args.exp_name), 'wb') as f:
                     torch.save(optimizer.state_dict(), f)
                 print(f'---- Saving best model weights and optimizer for epoch {epoch + 1} ----')
+                best_loss = val_loss
+                best_acc = val_acc
+                best_epoch = epoch
         else:
             train(epoch, dataset_type)
             valid(epoch, dataset_type)
+    print(f'Best epoch {best_epoch} with {best_acc} accuracy and {best_loss} loss')
+    print('Training finished')
 
         
